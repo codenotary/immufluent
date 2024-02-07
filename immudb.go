@@ -7,9 +7,8 @@ import (
 	"github.com/codenotary/immudb/pkg/api/schema"
 	immuclient "github.com/codenotary/immudb/pkg/client"
 	"github.com/lestrrat-go/strftime"
+	"github.com/spf13/viper"
 	"log"
-	"os"
-	"strconv"
 	"time"
 )
 
@@ -25,24 +24,13 @@ type immuConnection struct {
 	client   immuclient.ImmuClient
 }
 
-func get_env_default(varname, default_value string) string {
-	ret, ok := os.LookupEnv(varname)
-	if !ok {
-		ret = default_value
-	}
-	return ret
-}
-
 func (ic *immuConnection) cfg_init() {
 	var err error
-	ic.hostname = get_env_default("IF_IMMUDB_HOSTNAME", "127.0.0.1")
-	ic.port, err = strconv.Atoi(get_env_default("IF_IMMUDB_PORT", "3322"))
-	if err != nil {
-		log.Fatalln("Unable to parse port number")
-	}
-	ic.username = get_env_default("IF_IMMUDB_USERNAME", "immudb")
-	ic.password = get_env_default("IF_IMMUDB_PASSWORD", "immudb")
-	ic.pattern, err = strftime.New(get_env_default("IF_IMMUDB_PATTERN", "log_%Y_%m"))
+	ic.hostname = viper.GetString("immudb-hostname")
+	ic.port = viper.GetInt("immudb-port")
+	ic.username = viper.GetString("immudb-username")
+	ic.password = viper.GetString("immudb-password")
+	ic.pattern, err = strftime.New(viper.GetString("immudb-pattern"))
 	if err != nil {
 		log.Fatalln("Unable to parse database pattern string")
 	}

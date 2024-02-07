@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 	"immufluent/delaybuffer"
 	"log"
 	"net/http"
@@ -82,16 +84,9 @@ func logHandler(idb immuConnection, pushFunc func(logMsg)) http.HandlerFunc {
 			http.Error(w, "Error decoding json\n", http.StatusBadRequest)
 			return
 		}
-		// log.Printf("Message: %+v", msg)
 		for _, m := range msg {
 			pushFunc(m)
 		}
-		// err = idb.pushmsg(msg)
-		// if err != nil {
-		// 	log.Printf("Error pushing to immudb: %s", err.Error())
-		// 	http.Error(w, "Invalid pushing to immudb\n", http.StatusInternalServerError)
-		// 	return
-		// }
 		log.Printf("%d Message(s) buffered", len(msg))
 		fmt.Fprintf(w, "OK")
 		return
@@ -117,8 +112,23 @@ func ping(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "PONG\n")
 }
 
+func init() {
+	pflag.String("address", "0.0.0.0", "Binding address")
+	pflag.Int("port", 8090, "Listening port")
+	pflag.String("immudb-hostname", "127.0.0.1", "immudb server address")
+	pflag.Int("immudb-port", 3322, "immudb server port")
+	pflag.String("immudb-username", "immudb", "immudb admin username")
+	pflag.String("immudb-password", "immudb", "immudb admin password")
+	pflag.String("immudb-pattern", "log_%Y_%m", "database pattern name (with strftime variables)")
+	pflag.Parse()
+	viper.SetEnvPrefix("IF")
+	viper.BindPFlags(pflag.CommandLine)
+	viper.AutomaticEnv()
+}
+
 func main() {
-	bind_address := get_env_default("IF_BIND", ":8080")
+	bind_string := fmt.Sprintf("%s:%d", viper.GetString("address"), viper.GetInt("port"))
+	log.Printf("Starting on %s", bind_string)
 	idb := immuConnection{}
 	idb.cfg_init()
 	idb.connect(context.Background())
@@ -126,6 +136,6 @@ func main() {
 	http.HandleFunc("/ping", ping)
 	http.HandleFunc("/log", logHandler(idb, buffer.Push))
 	http.HandleFunc("/rotate", rotator(idb))
-	err := http.ListenAndServe(bind_address, nil)
+	err := http.ListenAndServe(bind_string, nil)
 	log.Printf("Exiting: %s\n", err.Error())
 }
