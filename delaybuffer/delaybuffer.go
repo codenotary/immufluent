@@ -15,7 +15,7 @@ type delaybuffer[T any] struct {
 
 func NewDelayBuffer[T any](batchsize int, step time.Duration, sendF func([]T) error) *delaybuffer[T] {
 	db := delaybuffer[T]{
-		ch: make(chan T, batchsize * 2),
+		ch:        make(chan T, batchsize*2),
 		batchsize: batchsize,
 		timerStep: step,
 		sendFunc:  sendF,
