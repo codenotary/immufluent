@@ -9,6 +9,7 @@ import (
 	"github.com/lestrrat-go/strftime"
 	"github.com/spf13/viper"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,7 @@ type immuConnection struct {
 	token    string
 	ctx      context.Context
 	client   immuclient.ImmuClient
+	mx       sync.Mutex
 }
 
 func (ic *immuConnection) cfg_init() {
@@ -52,10 +54,12 @@ func (ic *immuConnection) db_list() []string {
 			databases = append(databases, s.Name)
 		}
 	}
-
 	return databases
 }
+
 func (ic *immuConnection) rotate() bool {
+	ic.mx.Lock()
+	defer ic.mx.Unlock()
 	newdb := ic.pattern.FormatString(time.Now())
 	if newdb == ic.database {
 		log.Printf("Rotation not necessary")
@@ -66,6 +70,7 @@ func (ic *immuConnection) rotate() bool {
 	ic.connect(ic.ctx)
 	return true
 }
+
 func (ic *immuConnection) connect(ctx context.Context) {
 	log.Printf("Connecting to immudb: %s:%d", ic.hostname, ic.port)
 	ic.ctx = ctx
@@ -154,6 +159,8 @@ func (ic *immuConnection) pushmsg(msgs []logMsg) error {
 
 func (ic *immuConnection) DoExecAll(opList *schema.ExecAllRequest) (uint64, error) {
 	var err error
+	ic.mx.Lock()
+	defer ic.mx.Unlock()
 	for i := 0; i < 5; i++ {
 		ret, err := ic.client.ExecAll(ic.ctx, opList)
 		if err == nil {

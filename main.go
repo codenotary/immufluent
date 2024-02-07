@@ -102,11 +102,31 @@ func rotator(idb immuConnection) http.HandlerFunc {
 		log.Printf("Rotate request")
 		if idb.rotate() {
 			log.Printf("Rotated!")
+			fmt.Fprintf(w, "Rotated\n")
+			return
 		}
 		fmt.Fprintf(w, "OK")
-
 	}
 }
+
+
+func autorotate(idb immuConnection) {
+	t := viper.GetInt("autorotate")
+	if t<=0 {
+		return
+	}
+	ticker := time.NewTicker(time.Duration(t) * time.Second)
+	go func() {
+		for {
+			select {
+			case <- ticker.C:
+				log.Printf("Autorotating")
+				idb.rotate()
+			}
+		}
+	}()
+}
+
 
 func ping(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "PONG\n")
@@ -120,11 +140,16 @@ func init() {
 	pflag.String("immudb-username", "immudb", "immudb admin username")
 	pflag.String("immudb-password", "immudb", "immudb admin password")
 	pflag.String("immudb-pattern", "log_%Y_%m", "database pattern name (with strftime variables)")
+	pflag.Int("buffer-size", 100, "max buffer size")
+	pflag.Int("buffer-delay", 100, "max buffer delay (milliseconds)")
+	pflag.Int("autorotate", 86400, "Interval for internal rotation (seconds)")
 	pflag.Parse()
 	viper.SetEnvPrefix("IF")
 	viper.BindPFlags(pflag.CommandLine)
 	viper.AutomaticEnv()
 }
+
+
 
 func main() {
 	bind_string := fmt.Sprintf("%s:%d", viper.GetString("address"), viper.GetInt("port"))
@@ -132,7 +157,10 @@ func main() {
 	idb := immuConnection{}
 	idb.cfg_init()
 	idb.connect(context.Background())
-	buffer := delaybuffer.NewDelayBuffer[logMsg](10, 3000*time.Millisecond, idb.pushmsg)
+	size := viper.GetInt("buffer-size")
+	delay := time.Duration(viper.GetInt("buffer-delay")) * time.Millisecond
+	buffer := delaybuffer.NewDelayBuffer[logMsg](size, delay, idb.pushmsg)
+	autorotate(idb)
 	http.HandleFunc("/ping", ping)
 	http.HandleFunc("/log", logHandler(idb, buffer.Push))
 	http.HandleFunc("/rotate", rotator(idb))
