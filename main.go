@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
+	"immufluent/delaybuffer"
 )
 
 type logMsg struct {
@@ -67,9 +69,8 @@ func buildResponse(status string, err error) (*Response, error) {
 	return response, err
 }
 
-func mkHandler(idb immuConnection) http.HandlerFunc {
+func logHandler(idb immuConnection, pushFunc func(logMsg)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Method: %s", r.Method)
 		if r.Method != "POST" {
 			http.Error(w, "Invalid method\n", http.StatusBadRequest)
 		}
@@ -81,16 +82,34 @@ func mkHandler(idb immuConnection) http.HandlerFunc {
 			http.Error(w, "Error decoding json\n", http.StatusBadRequest)
 			return
 		}
-		log.Printf("Message: %+v", msg)
-		err = idb.pushmsg(msg)
-		if err != nil {
-			log.Printf("Error pushing to immudb: %s", err.Error())
-			http.Error(w, "Invalid pushing to immudb\n", http.StatusInternalServerError)
-			return
+		// log.Printf("Message: %+v", msg)
+		for _, m := range msg {
+			pushFunc(m)
 		}
-		log.Printf("Completed!")
+		// err = idb.pushmsg(msg)
+		// if err != nil {
+		// 	log.Printf("Error pushing to immudb: %s", err.Error())
+		// 	http.Error(w, "Invalid pushing to immudb\n", http.StatusInternalServerError)
+		// 	return
+		// }
+		log.Printf("%d Message(s) buffered", len(msg))
 		fmt.Fprintf(w, "OK")
 		return
+	}
+}
+
+func rotator(idb immuConnection) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Invalid method\n", http.StatusBadRequest)
+			return
+		}
+		log.Printf("Rotate request")
+		if idb.rotate() {
+			log.Printf("Rotated!")
+		}
+		fmt.Fprintf(w, "OK")
+
 	}
 }
 
@@ -103,8 +122,10 @@ func main() {
 	idb := immuConnection{}
 	idb.cfg_init()
 	idb.connect(context.Background())
+	buffer := delaybuffer.NewDelayBuffer[logMsg](10, 3000*time.Millisecond, idb.pushmsg)
 	http.HandleFunc("/ping", ping)
-	http.HandleFunc("/log", mkHandler(idb))
+	http.HandleFunc("/log", logHandler(idb, buffer.Push))
+	http.HandleFunc("/rotate", rotator(idb))
 	err := http.ListenAndServe(bind_address, nil)
 	log.Printf("Exiting: %s\n", err.Error())
 }
