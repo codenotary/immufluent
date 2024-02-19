@@ -28,11 +28,11 @@ type immuConnection struct {
 
 func (ic *immuConnection) cfg_init() {
 	var err error
-	ic.hostname = viper.GetString("immudb-hostname")
-	ic.port = viper.GetInt("immudb-port")
-	ic.username = viper.GetString("immudb-username")
-	ic.password = viper.GetString("immudb-password")
-	ic.pattern, err = strftime.New(viper.GetString("immudb-pattern"))
+	ic.hostname = viper.GetString("immudb_hostname")
+	ic.port = viper.GetInt("immudb_port")
+	ic.username = viper.GetString("immudb_username")
+	ic.password = viper.GetString("immudb_password")
+	ic.pattern, err = strftime.New(viper.GetString("immudb_pattern"))
 	if err != nil {
 		log.Fatalln("Unable to parse database pattern string")
 	}

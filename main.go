@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
-	"immufluent/delaybuffer"
 	"log"
 	"net/http"
+	"strings"
 	"time"
+
+	"immufluent/delaybuffer"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
 type logMsg struct {
@@ -77,7 +81,7 @@ func logHandler(idb immuConnection, pushFunc func(logMsg)) http.HandlerFunc {
 			http.Error(w, "Invalid method\n", http.StatusBadRequest)
 		}
 		var msg []logMsg
-
+		defer r.Body.Close()
 		err := json.NewDecoder(r.Body).Decode(&msg)
 		if err != nil {
 			log.Printf("Error decoding msg: %s", err.Error())
@@ -109,24 +113,22 @@ func rotator(idb immuConnection) http.HandlerFunc {
 	}
 }
 
-
 func autorotate(idb immuConnection) {
 	t := viper.GetInt("autorotate")
-	if t<=0 {
+	if t <= 0 {
 		return
 	}
 	ticker := time.NewTicker(time.Duration(t) * time.Second)
 	go func() {
 		for {
 			select {
-			case <- ticker.C:
+			case <-ticker.C:
 				log.Printf("Autorotating")
 				idb.rotate()
 			}
 		}
 	}()
 }
-
 
 func ping(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "PONG\n")
@@ -145,11 +147,16 @@ func init() {
 	pflag.Int("autorotate", 86400, "Interval for internal rotation (seconds)")
 	pflag.Parse()
 	viper.SetEnvPrefix("IF")
-	viper.BindPFlags(pflag.CommandLine)
+	f := pflag.CommandLine
+	normalizeFunc := f.GetNormalizeFunc()
+	f.SetNormalizeFunc(func(fs *pflag.FlagSet, name string) pflag.NormalizedName {
+		result := normalizeFunc(fs, name)
+		name = strings.ReplaceAll(string(result), "-", "_")
+		return pflag.NormalizedName(name)
+	})
+	viper.BindPFlags(f)
 	viper.AutomaticEnv()
 }
-
-
 
 func main() {
 	bind_string := fmt.Sprintf("%s:%d", viper.GetString("address"), viper.GetInt("port"))
@@ -157,13 +164,14 @@ func main() {
 	idb := immuConnection{}
 	idb.cfg_init()
 	idb.connect(context.Background())
-	size := viper.GetInt("buffer-size")
-	delay := time.Duration(viper.GetInt("buffer-delay")) * time.Millisecond
+	size := viper.GetInt("buffer_size")
+	delay := time.Duration(viper.GetInt("buffer_delay")) * time.Millisecond
 	buffer := delaybuffer.NewDelayBuffer[logMsg](size, delay, idb.pushmsg)
 	autorotate(idb)
 	http.HandleFunc("/ping", ping)
 	http.HandleFunc("/log", logHandler(idb, buffer.Push))
 	http.HandleFunc("/rotate", rotator(idb))
+	http.Handle("/metrics", promhttp.Handler())
 	err := http.ListenAndServe(bind_string, nil)
 	log.Printf("Exiting: %s\n", err.Error())
 }
